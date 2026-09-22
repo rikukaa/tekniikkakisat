@@ -379,8 +379,9 @@ const EVENTS = [
   { key: "rata8",       label: "8-rata" }
 ];
  
-// Alkuperäinen pelaajarosteri — lisätään Firestoreen automaattisesti
-// ensimmäisellä käynnistyskerralla, jos pelaajia ei vielä ole tallennettuna.
+// Pelaajarosteri — kiinteä lista, ei tietokannassa. Kesken kisan lisätyt
+// pelaajat tallentuvat vain sen laitteen selaimeen jolla ne lisättiin
+// (localStorage), eivät Firestoreen.
 const INITIAL_ROSTER = [
   "Ekström Eikka","Eriksson Eino","Haaponiemi Juuso","Hilden Daniel",
   "Hyytiäinen Leo","Kaalamo Aksel","Laakso Joel","Meba Salima",
@@ -394,13 +395,12 @@ const INITIAL_ROSTER = [
  
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const playersCol = collection(db, "tk_players");
 const resultsCol = collection(db, "tk_results");
+const LOCAL_PLAYERS_KEY = "tk_extra_players";
  
-let players = [];      // {id, name, team}
+let players = [];      // {id, name} — roster + paikalliset lisäpelaajat
 let results = [];      // {id, playerId, playerName, team, event, date, seconds}
 let activeTab = EVENTS[0].key; // or "summary" or "history handled via modal"
-let seeded = false;
  
 document.getElementById("teamLabel").textContent = "Joukkue: " + TEAM;
  
@@ -468,22 +468,23 @@ function buildTabs(){
   });
 }
  
+/* ---------- Pelaajat (ei Firestoressa — kiinteä roster + paikalliset lisäykset) ---------- */
+function loadPlayers(){
+  let extra = [];
+  try {
+    extra = JSON.parse(localStorage.getItem(LOCAL_PLAYERS_KEY) || "[]");
+  } catch(err){
+    extra = [];
+  }
+  const roster = INITIAL_ROSTER.map((name, i) => ({ id: "p" + i, name }));
+  players = [...roster, ...extra].sort((a,b) => a.name.localeCompare(b.name, "fi"));
+}
+ 
 /* ---------- Boot / Firestore listeners ---------- */
 function boot(){
   buildTabs();
-  onSnapshot(query(playersCol, where("team","==",TEAM)),
-    snap => {
-      players = snap.docs.map(d => ({id:d.id, ...d.data()}))
-        .sort((a,b) => a.name.localeCompare(b.name, "fi"));
-      if(!seeded && snap.empty){
-        seeded = true;
-        seedRoster();
-      } else {
-        render();
-      }
-    },
-    err => showError("Pelaajien lataus epäonnistui", err)
-  );
+  loadPlayers();
+  render();
   onSnapshot(query(resultsCol, where("team","==",TEAM)),
     snap => {
       results = snap.docs.map(d => ({id:d.id, ...d.data()}));
@@ -491,16 +492,6 @@ function boot(){
     },
     err => showError("Tulosten lataus epäonnistui", err)
   );
-}
- 
-async function seedRoster(){
-  try {
-    for(const name of INITIAL_ROSTER){
-      await addDoc(playersCol, { name, team: TEAM, createdAt: serverTimestamp() });
-    }
-  } catch(err){
-    showError("Pelaajarosterin alustus epäonnistui", err);
-  }
 }
  
 /* ---------- Helpers ---------- */
@@ -544,11 +535,21 @@ async function clearResult(resultId){
   }
 }
  
-async function addPlayer(name){
+function addPlayer(name){
   name = name.trim();
   if(!name) return;
   try {
-    await addDoc(playersCol, { name, team: TEAM, createdAt: serverTimestamp() });
+    let extra = [];
+    try {
+      extra = JSON.parse(localStorage.getItem(LOCAL_PLAYERS_KEY) || "[]");
+    } catch(err){
+      extra = [];
+    }
+    const id = "local-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+    extra.push({ id, name });
+    localStorage.setItem(LOCAL_PLAYERS_KEY, JSON.stringify(extra));
+    loadPlayers();
+    render();
   } catch(err){
     showError("Pelaajan lisäys epäonnistui", err);
   }
