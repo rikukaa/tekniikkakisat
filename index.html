@@ -227,6 +227,14 @@
     font-size:0.8rem;
     padding:8px 12px;
   }
+  .save-btn{
+    background:var(--green);
+    color:#fff;
+    font-size:0.8rem;
+    padding:8px 12px;
+    white-space:nowrap;
+  }
+  .save-btn:active{background:var(--green-dark);}
   .modal-backdrop{
     position:fixed;inset:0;
     background:rgba(0,0,0,0.45);
@@ -566,36 +574,30 @@ function render(){
  
 function renderEventView(eventKey, date){
   const eventDef = EVENTS.find(e => e.key === eventKey);
-  const card = document.createElement("div");
-  card.className = "card";
+  const wrapper = document.createDocumentFragment();
  
   const rows = players.map(p => {
     const r = resultFor(p.id, eventKey, date);
     return { player: p, result: r };
   });
-  const withTime = rows.filter(r => r.result).sort((a,b) => a.result.seconds - b.result.seconds);
-  const withoutTime = rows.filter(r => !r.result);
-  const ordered = [...withTime, ...withoutTime];
+  const ranked = rows.filter(r => r.result).sort((a,b) => a.result.seconds - b.result.seconds);
  
-  card.innerHTML = `<h2>${eventDef.label} <span class="pill">${date}</span></h2>`;
+  /* ---- Kortti 1: tulosten syöttö ---- */
+  const entryCard = document.createElement("div");
+  entryCard.className = "card";
+  entryCard.innerHTML = `<h2>${eventDef.label} — syötä tulos <span class="pill">${date}</span></h2>`;
  
-  const table = document.createElement("table");
-  table.innerHTML = `<thead><tr>
-      <th></th><th>Pelaaja</th><th style="text-align:right;">Tulos</th><th></th>
+  const entryTable = document.createElement("table");
+  entryTable.innerHTML = `<thead><tr>
+      <th>Pelaaja</th><th style="text-align:right;">Tulos (s)</th><th></th>
     </tr></thead>`;
-  const tbody = document.createElement("tbody");
+  const entryBody = document.createElement("tbody");
  
-  ordered.forEach((row, idx) => {
+  rows.forEach(row => {
     const tr = document.createElement("tr");
-    const rankClass = row.result ? (idx===0?"rank-1":idx===1?"rank-2":idx===2?"rank-3":"") : "";
-    const rankLabel = row.result ? (idx+1) : "";
- 
-    const tdRank = document.createElement("td");
-    tdRank.className = "rank-cell " + rankClass;
-    tdRank.textContent = rankLabel;
  
     const tdName = document.createElement("td");
-    tdName.innerHTML = `<div class="player-name">${row.player.name}</div>
+    tdName.innerHTML = `<div class="player-name">${row.player.name}${row.result ? ' <span class="pill">tallennettu</span>' : ''}</div>
       <button class="hist-btn" type="button">Historia</button>`;
     tdName.querySelector(".hist-btn").addEventListener("click", () => openHistory(row.player));
  
@@ -610,16 +612,74 @@ function renderEventView(eventKey, date){
     input.className = "result-input";
     input.placeholder = "s";
     input.value = row.result ? row.result.seconds : "";
-    input.addEventListener("change", async () => {
-      const val = parseFloat(input.value.replace(",", "."));
-      if(isNaN(val) || val <= 0){ input.value = row.result ? row.result.seconds : ""; return; }
-      await saveResult(row.player.id, row.player.name, eventKey, date, val);
-    });
     wrap.appendChild(input);
     tdInput.appendChild(wrap);
  
-    const tdClear = document.createElement("td");
-    if(row.result){
+    const tdSave = document.createElement("td");
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "save-btn";
+    saveBtn.textContent = "Tallenna";
+    const doSave = () => {
+      const val = parseFloat(input.value.replace(",", "."));
+      if(isNaN(val) || val <= 0){ return; }
+      saveResult(row.player.id, row.player.name, eventKey, date, val);
+    };
+    saveBtn.addEventListener("click", doSave);
+    input.addEventListener("keydown", e => { if(e.key === "Enter") doSave(); });
+    tdSave.appendChild(saveBtn);
+ 
+    tr.appendChild(tdName);
+    tr.appendChild(tdInput);
+    tr.appendChild(tdSave);
+    entryBody.appendChild(tr);
+  });
+ 
+  entryTable.appendChild(entryBody);
+  entryCard.appendChild(entryTable);
+ 
+  const addRow = document.createElement("div");
+  addRow.className = "add-player-row";
+  addRow.innerHTML = `<input type="text" placeholder="Uusi pelaaja (etu- ja sukunimi)" id="newPlayerInput">
+    <button type="button" id="addPlayerBtn">+ Lisää pelaaja</button>`;
+  entryCard.appendChild(addRow);
+ 
+  wrapper.appendChild(entryCard);
+ 
+  /* ---- Kortti 2: tulokset / sijoitukset ---- */
+  const resultsCard = document.createElement("div");
+  resultsCard.className = "card";
+  resultsCard.innerHTML = `<h2>${eventDef.label} — tulokset <span class="pill">${date}</span></h2>`;
+ 
+  if(ranked.length === 0){
+    const hint = document.createElement("div");
+    hint.className = "empty-hint";
+    hint.textContent = "Ei vielä tallennettuja tuloksia tälle päivälle.";
+    resultsCard.appendChild(hint);
+  } else {
+    const resultsTable = document.createElement("table");
+    resultsTable.innerHTML = `<thead><tr>
+        <th></th><th>Pelaaja</th><th style="text-align:right;">Tulos</th><th></th>
+      </tr></thead>`;
+    const resultsBody = document.createElement("tbody");
+ 
+    ranked.forEach((row, idx) => {
+      const tr = document.createElement("tr");
+      const rankClass = idx===0?"rank-1":idx===1?"rank-2":idx===2?"rank-3":"";
+ 
+      const tdRank = document.createElement("td");
+      tdRank.className = "rank-cell " + rankClass;
+      tdRank.textContent = idx + 1;
+ 
+      const tdName = document.createElement("td");
+      tdName.className = "player-name";
+      tdName.textContent = row.player.name;
+ 
+      const tdResult = document.createElement("td");
+      tdResult.style.textAlign = "right";
+      tdResult.textContent = fmtSeconds(row.result.seconds);
+ 
+      const tdClear = document.createElement("td");
       const clearBtn = document.createElement("button");
       clearBtn.className = "clear-btn";
       clearBtn.type = "button";
@@ -627,30 +687,17 @@ function renderEventView(eventKey, date){
       clearBtn.title = "Poista tulos";
       clearBtn.addEventListener("click", () => clearResult(row.result.id));
       tdClear.appendChild(clearBtn);
-    }
  
-    tr.appendChild(tdRank);
-    tr.appendChild(tdName);
-    tr.appendChild(tdInput);
-    tr.appendChild(tdClear);
-    tbody.appendChild(tr);
-  });
+      tr.appendChild(tdRank);
+      tr.appendChild(tdName);
+      tr.appendChild(tdResult);
+      tr.appendChild(tdClear);
+      resultsBody.appendChild(tr);
+    });
  
-  table.appendChild(tbody);
-  card.appendChild(table);
- 
-  if(players.length === 0){
-    const hint = document.createElement("div");
-    hint.className = "empty-hint";
-    hint.textContent = "Ei vielä pelaajia. Lisää pelaaja alta.";
-    card.appendChild(hint);
+    resultsTable.appendChild(resultsBody);
+    resultsCard.appendChild(resultsTable);
   }
- 
-  const addRow = document.createElement("div");
-  addRow.className = "add-player-row";
-  addRow.innerHTML = `<input type="text" placeholder="Uusi pelaaja (etu- ja sukunimi)" id="newPlayerInput">
-    <button type="button" id="addPlayerBtn">+ Lisää pelaaja</button>`;
-  card.appendChild(addRow);
  
   const exportRow = document.createElement("div");
   exportRow.style.marginTop = "10px";
@@ -659,9 +706,11 @@ function renderEventView(eventKey, date){
   exportBtn.className = "export-btn";
   exportBtn.type = "button";
   exportBtn.textContent = "Vie CSV";
-  exportBtn.addEventListener("click", () => exportCsv(eventDef.label, ordered, date));
+  exportBtn.addEventListener("click", () => exportCsv(eventDef.label, ranked, date));
   exportRow.appendChild(exportBtn);
-  card.appendChild(exportRow);
+  resultsCard.appendChild(exportRow);
+ 
+  wrapper.appendChild(resultsCard);
  
   setTimeout(() => {
     const btn = document.getElementById("addPlayerBtn");
@@ -673,7 +722,7 @@ function renderEventView(eventKey, date){
     }
   }, 0);
  
-  return card;
+  return wrapper;
 }
  
 function renderSummary(date){
