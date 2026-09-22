@@ -439,12 +439,6 @@ function tryUnlock(){
 document.getElementById("pinSubmit").addEventListener("click", tryUnlock);
 pinInput.addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
  
-if(sessionStorage.getItem("tk_unlocked") === "1"){
-  pinScreen.style.display = "none";
-  appRoot.style.display = "block";
-  boot();
-}
- 
 /* ---------- Date control ---------- */
 const dateInput = document.getElementById("dateInput");
 function todayStr(){
@@ -797,6 +791,16 @@ function exportCsv(eventLabel, orderedRows, date){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+ 
+/* ---------- Auto-kirjautuminen jos PIN on jo annettu tässä välilehdessä ----------
+   Tämä on tarkoituksella aivan tiedoston lopussa: se kutsuu boot()-funktiota, joka
+   käyttää mm. dateInput-muuttujaa, ja se muuttuja pitää olla jo määritelty ennen
+   kuin boot() voidaan turvallisesti kutsua sivun latautuessa. */
+if(sessionStorage.getItem("tk_unlocked") === "1"){
+  pinScreen.style.display = "none";
+  appRoot.style.display = "block";
+  boot();
 }
 </script>
 </body>
