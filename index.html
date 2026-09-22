@@ -1,3 +1,22 @@
+
+Claude Desktop (macOS), Connected
+/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Index · HTML
 <!DOCTYPE html>
 <html lang="fi">
 <head>
@@ -277,10 +296,32 @@
     font-size:0.8rem;
     padding:20px;
   }
+  .error-banner{
+    display:none;
+    background:#fdecea;
+    color:var(--danger);
+    border:1px solid #f5c6c0;
+    border-radius:10px;
+    padding:10px 12px;
+    font-size:0.82rem;
+    margin:0 16px 12px;
+    line-height:1.4;
+  }
+  .error-banner.show{display:block;}
+  .error-banner button{
+    background:none;
+    border:none;
+    color:var(--danger);
+    text-decoration:underline;
+    font-weight:600;
+    font-size:0.8rem;
+    padding:0;
+    margin-top:4px;
+  }
 </style>
 </head>
 <body>
-
+ 
 <div id="pinScreen" class="pin-screen">
   <div class="pin-box">
     <h1>⚽ Tekniikkakisat</h1>
@@ -290,13 +331,15 @@
     <div class="error-msg" id="pinError"></div>
   </div>
 </div>
-
+ 
 <div class="app" id="appRoot" style="display:none;">
   <header class="top">
     <h1>⚽ Tekniikkakisat</h1>
     <div class="sub" id="teamLabel">Joukkue: P17</div>
   </header>
-
+ 
+  <div class="error-banner" id="errorBanner"></div>
+ 
   <main>
     <div class="controls-row">
       <div>
@@ -304,31 +347,31 @@
         <input type="date" id="dateInput">
       </div>
     </div>
-
+ 
     <div class="tabs" id="eventTabs"></div>
-
+ 
     <div id="viewContainer"></div>
-
+ 
     <div class="footer-note">Tulokset tallentuvat automaattisesti ja näkyvät kaikille valmentajille reaaliajassa.</div>
   </main>
 </div>
-
+ 
 <div id="modalRoot"></div>
-
+ 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
   getFirestore, collection, doc, setDoc, deleteDoc, addDoc,
   onSnapshot, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-
+ 
 /* =========================================================
    1) ASETUKSET — täytä nämä ennen julkaisua
    ========================================================= */
-
+ 
 // Valmentajan PIN (voit vaihtaa vapaasti)
 const COACH_PIN = "0506";
-
+ 
 // Firebase-projektin asetukset.
 // Voit käyttää samaa Firebase-projektia kuin nups-harjoittelu-sovelluksessa
 // (kopioi sieltä täsmälleen samat arvot) — tämä työkalu käyttää eri
@@ -342,10 +385,10 @@ const firebaseConfig = {
   messagingSenderId: "719754996458",
   appId: "1:719754996458:web:ca12d19ac8785352bb0593"
 };
-
+ 
 // Joukkue (tätä työkalua käytetään toistaiseksi yhdelle joukkueelle kerrallaan)
 const TEAM = "P17";
-
+ 
 // Mitattavat lajit
 const EVENTS = [
   { key: "ponnauttelu", label: "Ponnauttelu" },
@@ -353,7 +396,7 @@ const EVENTS = [
   { key: "pujottelu",   label: "Pujottelu" },
   { key: "rata8",       label: "8-rata" }
 ];
-
+ 
 // Alkuperäinen pelaajarosteri — lisätään Firestoreen automaattisesti
 // ensimmäisellä käynnistyskerralla, jos pelaajia ei vielä ole tallennettuna.
 const INITIAL_ROSTER = [
@@ -364,27 +407,43 @@ const INITIAL_ROSTER = [
   "Seppälä Oskar","Sirén Eeli","Teittinen Lassi","Tikkanen Jusa",
   "Tuulivirta Tomi","Vesamäki Alvar"
 ];
-
+ 
 /* ========================================================= */
-
+ 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const playersCol = collection(db, "tk_players");
 const resultsCol = collection(db, "tk_results");
-
+ 
 let players = [];      // {id, name, team}
 let results = [];      // {id, playerId, playerName, team, event, date, seconds}
 let activeTab = EVENTS[0].key; // or "summary" or "history handled via modal"
 let seeded = false;
-
+ 
 document.getElementById("teamLabel").textContent = "Joukkue: " + TEAM;
-
+ 
+/* ---------- Error banner ---------- */
+const errorBanner = document.getElementById("errorBanner");
+function showError(context, err){
+  console.error(context, err);
+  const code = err && err.code ? ` (${err.code})` : "";
+  let hint = "";
+  if(err && err.code === "permission-denied"){
+    hint = " Tämä tarkoittaa yleensä että Firestore-tietokannan säännöt (Rules) estävät kirjoittamisen tk_players/tk_results-kokoelmiin. Lähetä tämä viesti Claudelle niin katsotaan säännöt.";
+  }
+  errorBanner.innerHTML = `<strong>${context}${code}:</strong> ${err && err.message ? err.message : err}${hint}
+    <button type="button" id="errorDismiss">Piilota</button>`;
+  errorBanner.classList.add("show");
+  const dismiss = document.getElementById("errorDismiss");
+  if(dismiss) dismiss.addEventListener("click", () => errorBanner.classList.remove("show"));
+}
+ 
 /* ---------- PIN gate ---------- */
 const pinScreen = document.getElementById("pinScreen");
 const appRoot = document.getElementById("appRoot");
 const pinInput = document.getElementById("pinInput");
 const pinError = document.getElementById("pinError");
-
+ 
 function tryUnlock(){
   if(pinInput.value.trim() === COACH_PIN){
     sessionStorage.setItem("tk_unlocked", "1");
@@ -397,13 +456,13 @@ function tryUnlock(){
 }
 document.getElementById("pinSubmit").addEventListener("click", tryUnlock);
 pinInput.addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
-
+ 
 if(sessionStorage.getItem("tk_unlocked") === "1"){
   pinScreen.style.display = "none";
   appRoot.style.display = "block";
   boot();
 }
-
+ 
 /* ---------- Date control ---------- */
 const dateInput = document.getElementById("dateInput");
 function todayStr(){
@@ -412,7 +471,7 @@ function todayStr(){
 }
 dateInput.value = todayStr();
 dateInput.addEventListener("change", render);
-
+ 
 /* ---------- Tabs ---------- */
 function buildTabs(){
   const wrap = document.getElementById("eventTabs");
@@ -426,32 +485,42 @@ function buildTabs(){
     wrap.appendChild(b);
   });
 }
-
+ 
 /* ---------- Boot / Firestore listeners ---------- */
 function boot(){
   buildTabs();
-  onSnapshot(query(playersCol, where("team","==",TEAM)), snap => {
-    players = snap.docs.map(d => ({id:d.id, ...d.data()}))
-      .sort((a,b) => a.name.localeCompare(b.name, "fi"));
-    if(!seeded && snap.empty){
-      seeded = true;
-      seedRoster();
-    } else {
+  onSnapshot(query(playersCol, where("team","==",TEAM)),
+    snap => {
+      players = snap.docs.map(d => ({id:d.id, ...d.data()}))
+        .sort((a,b) => a.name.localeCompare(b.name, "fi"));
+      if(!seeded && snap.empty){
+        seeded = true;
+        seedRoster();
+      } else {
+        render();
+      }
+    },
+    err => showError("Pelaajien lataus epäonnistui", err)
+  );
+  onSnapshot(query(resultsCol, where("team","==",TEAM)),
+    snap => {
+      results = snap.docs.map(d => ({id:d.id, ...d.data()}));
       render();
-    }
-  });
-  onSnapshot(query(resultsCol, where("team","==",TEAM)), snap => {
-    results = snap.docs.map(d => ({id:d.id, ...d.data()}));
-    render();
-  });
+    },
+    err => showError("Tulosten lataus epäonnistui", err)
+  );
 }
-
+ 
 async function seedRoster(){
-  for(const name of INITIAL_ROSTER){
-    await addDoc(playersCol, { name, team: TEAM, createdAt: serverTimestamp() });
+  try {
+    for(const name of INITIAL_ROSTER){
+      await addDoc(playersCol, { name, team: TEAM, createdAt: serverTimestamp() });
+    }
+  } catch(err){
+    showError("Pelaajarosterin alustus epäonnistui", err);
   }
 }
-
+ 
 /* ---------- Helpers ---------- */
 function fmtSeconds(sec){
   if(sec === null || sec === undefined || isNaN(sec)) return "";
@@ -462,35 +531,47 @@ function fmtSeconds(sec){
   }
   return sec.toFixed(2) + " s";
 }
-
+ 
 function resultFor(playerId, eventKey, date){
   return results.find(r => r.playerId === playerId && r.event === eventKey && r.date === date);
 }
-
+ 
 async function saveResult(playerId, playerName, eventKey, date, seconds){
-  const existing = resultFor(playerId, eventKey, date);
-  const payload = {
-    playerId, playerName, team: TEAM,
-    event: eventKey, date, seconds,
-    updatedAt: serverTimestamp()
-  };
-  if(existing){
-    await setDoc(doc(db, "tk_results", existing.id), payload, { merge: true });
-  } else {
-    await addDoc(resultsCol, payload);
+  try {
+    const existing = resultFor(playerId, eventKey, date);
+    const payload = {
+      playerId, playerName, team: TEAM,
+      event: eventKey, date, seconds,
+      updatedAt: serverTimestamp()
+    };
+    if(existing){
+      await setDoc(doc(db, "tk_results", existing.id), payload, { merge: true });
+    } else {
+      await addDoc(resultsCol, payload);
+    }
+  } catch(err){
+    showError("Tuloksen tallennus epäonnistui", err);
   }
 }
-
+ 
 async function clearResult(resultId){
-  await deleteDoc(doc(db, "tk_results", resultId));
+  try {
+    await deleteDoc(doc(db, "tk_results", resultId));
+  } catch(err){
+    showError("Tuloksen poisto epäonnistui", err);
+  }
 }
-
+ 
 async function addPlayer(name){
   name = name.trim();
   if(!name) return;
-  await addDoc(playersCol, { name, team: TEAM, createdAt: serverTimestamp() });
+  try {
+    await addDoc(playersCol, { name, team: TEAM, createdAt: serverTimestamp() });
+  } catch(err){
+    showError("Pelaajan lisäys epäonnistui", err);
+  }
 }
-
+ 
 /* ---------- Render ---------- */
 function render(){
   if(!appRoot || appRoot.style.display === "none") return;
@@ -498,19 +579,19 @@ function render(){
   const date = dateInput.value || todayStr();
   const container = document.getElementById("viewContainer");
   container.innerHTML = "";
-
+ 
   if(activeTab === "summary"){
     container.appendChild(renderSummary(date));
   } else {
     container.appendChild(renderEventView(activeTab, date));
   }
 }
-
+ 
 function renderEventView(eventKey, date){
   const eventDef = EVENTS.find(e => e.key === eventKey);
   const card = document.createElement("div");
   card.className = "card";
-
+ 
   const rows = players.map(p => {
     const r = resultFor(p.id, eventKey, date);
     return { player: p, result: r };
@@ -518,29 +599,29 @@ function renderEventView(eventKey, date){
   const withTime = rows.filter(r => r.result).sort((a,b) => a.result.seconds - b.result.seconds);
   const withoutTime = rows.filter(r => !r.result);
   const ordered = [...withTime, ...withoutTime];
-
+ 
   card.innerHTML = `<h2>${eventDef.label} <span class="pill">${date}</span></h2>`;
-
+ 
   const table = document.createElement("table");
   table.innerHTML = `<thead><tr>
       <th></th><th>Pelaaja</th><th style="text-align:right;">Tulos</th><th></th>
     </tr></thead>`;
   const tbody = document.createElement("tbody");
-
+ 
   ordered.forEach((row, idx) => {
     const tr = document.createElement("tr");
     const rankClass = row.result ? (idx===0?"rank-1":idx===1?"rank-2":idx===2?"rank-3":"") : "";
     const rankLabel = row.result ? (idx+1) : "";
-
+ 
     const tdRank = document.createElement("td");
     tdRank.className = "rank-cell " + rankClass;
     tdRank.textContent = rankLabel;
-
+ 
     const tdName = document.createElement("td");
     tdName.innerHTML = `<div class="player-name">${row.player.name}</div>
       <button class="hist-btn" type="button">Historia</button>`;
     tdName.querySelector(".hist-btn").addEventListener("click", () => openHistory(row.player));
-
+ 
     const tdInput = document.createElement("td");
     tdInput.style.textAlign = "right";
     const wrap = document.createElement("div");
@@ -559,7 +640,7 @@ function renderEventView(eventKey, date){
     });
     wrap.appendChild(input);
     tdInput.appendChild(wrap);
-
+ 
     const tdClear = document.createElement("td");
     if(row.result){
       const clearBtn = document.createElement("button");
@@ -570,30 +651,30 @@ function renderEventView(eventKey, date){
       clearBtn.addEventListener("click", () => clearResult(row.result.id));
       tdClear.appendChild(clearBtn);
     }
-
+ 
     tr.appendChild(tdRank);
     tr.appendChild(tdName);
     tr.appendChild(tdInput);
     tr.appendChild(tdClear);
     tbody.appendChild(tr);
   });
-
+ 
   table.appendChild(tbody);
   card.appendChild(table);
-
+ 
   if(players.length === 0){
     const hint = document.createElement("div");
     hint.className = "empty-hint";
     hint.textContent = "Ei vielä pelaajia. Lisää pelaaja alta.";
     card.appendChild(hint);
   }
-
+ 
   const addRow = document.createElement("div");
   addRow.className = "add-player-row";
   addRow.innerHTML = `<input type="text" placeholder="Uusi pelaaja (etu- ja sukunimi)" id="newPlayerInput">
     <button type="button" id="addPlayerBtn">+ Lisää pelaaja</button>`;
   card.appendChild(addRow);
-
+ 
   const exportRow = document.createElement("div");
   exportRow.style.marginTop = "10px";
   exportRow.style.textAlign = "right";
@@ -604,7 +685,7 @@ function renderEventView(eventKey, date){
   exportBtn.addEventListener("click", () => exportCsv(eventDef.label, ordered, date));
   exportRow.appendChild(exportBtn);
   card.appendChild(exportRow);
-
+ 
   setTimeout(() => {
     const btn = document.getElementById("addPlayerBtn");
     const inp = document.getElementById("newPlayerInput");
@@ -614,25 +695,25 @@ function renderEventView(eventKey, date){
       inp.addEventListener("keydown", e => { if(e.key === "Enter") submit(); });
     }
   }, 0);
-
+ 
   return card;
 }
-
+ 
 function renderSummary(date){
   const card = document.createElement("div");
   card.className = "card";
   card.innerHTML = `<h2>Yhteenveto <span class="pill">${date}</span></h2>`;
-
+ 
   const rows = players.map(p => {
     const perEvent = EVENTS.map(ev => resultFor(p.id, ev.key, date));
     const completed = perEvent.every(r => r);
     const total = completed ? perEvent.reduce((s,r) => s + r.seconds, 0) : null;
     return { player: p, perEvent, completed, total };
   });
-
+ 
   const withAll = rows.filter(r => r.completed).sort((a,b) => a.total - b.total);
   const partial = rows.filter(r => !r.completed && r.perEvent.some(r2 => r2));
-
+ 
   const table = document.createElement("table");
   table.innerHTML = `<thead><tr>
     <th></th><th>Pelaaja</th>
@@ -640,7 +721,7 @@ function renderSummary(date){
     <th style="text-align:right;">Yht.</th>
   </tr></thead>`;
   const tbody = document.createElement("tbody");
-
+ 
   function buildRow(row, rankLabel, rankClass){
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -651,45 +732,45 @@ function renderSummary(date){
     `;
     return tr;
   }
-
+ 
   withAll.forEach((row, idx) => {
     const rankClass = idx===0?"rank-1":idx===1?"rank-2":idx===2?"rank-3":"";
     tbody.appendChild(buildRow(row, idx+1, rankClass));
   });
   partial.forEach(row => tbody.appendChild(buildRow(row, "")));
-
+ 
   table.appendChild(tbody);
   card.appendChild(table);
-
+ 
   if(withAll.length === 0 && partial.length === 0){
     const hint = document.createElement("div");
     hint.className = "empty-hint";
     hint.textContent = "Ei vielä tuloksia tälle päivälle.";
     card.appendChild(hint);
   }
-
+ 
   const note = document.createElement("div");
   note.className = "empty-hint";
   note.style.marginTop = "8px";
   note.textContent = "Yhteenlaskettu kokonaisaika lasketaan vain pelaajille joilla on tulos kaikissa neljässä lajissa.";
   card.appendChild(note);
-
+ 
   return card;
 }
-
+ 
 /* ---------- History modal ---------- */
 function openHistory(player){
   const modalRoot = document.getElementById("modalRoot");
   const history = results
     .filter(r => r.playerId === player.id)
     .sort((a,b) => b.date.localeCompare(a.date));
-
+ 
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   const modal = document.createElement("div");
   modal.className = "modal";
   modal.innerHTML = `<h3>${player.name} — historia</h3>`;
-
+ 
   if(history.length === 0){
     modal.innerHTML += `<div class="empty-hint">Ei vielä tuloksia.</div>`;
   } else {
@@ -702,20 +783,20 @@ function openHistory(player){
       modal.appendChild(row);
     });
   }
-
+ 
   const closeBtn = document.createElement("button");
   closeBtn.className = "modal-close";
   closeBtn.type = "button";
   closeBtn.textContent = "Sulje";
   closeBtn.addEventListener("click", () => modalRoot.innerHTML = "");
   modal.appendChild(closeBtn);
-
+ 
   backdrop.appendChild(modal);
   backdrop.addEventListener("click", e => { if(e.target === backdrop) modalRoot.innerHTML = ""; });
   modalRoot.innerHTML = "";
   modalRoot.appendChild(backdrop);
 }
-
+ 
 /* ---------- CSV export ---------- */
 function exportCsv(eventLabel, orderedRows, date){
   let csv = "Sija;Pelaaja;Tulos (s)\n";
@@ -737,3 +818,4 @@ function exportCsv(eventLabel, orderedRows, date){
 </script>
 </body>
 </html>
+ 
